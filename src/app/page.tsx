@@ -5,10 +5,14 @@ import { Sidebar, SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AutomatonControls } from "@/components/automaton-controls";
 import { QuantumAutomatonView } from "@/components/quantum-automaton-view";
 
+export type InitPattern = "random" | "dots";
+
 export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
   const [speed, setSpeed] = useState(50); // 1-100 scale
   const [transparency, setTransparency] = useState(30); // 0-100 scale
+  const [gridSize, setGridSize] = useState(10); // 5-20 scale
+  const [initPattern, setInitPattern] = useState<InitPattern>("random");
   const [resetToken, setResetToken] = useState(0);
 
   return (
@@ -22,6 +26,10 @@ export default function Home() {
             onSpeedChange={setSpeed}
             transparency={transparency}
             onTransparencyChange={setTransparency}
+            gridSize={gridSize}
+            onGridSizeChange={setGridSize}
+            initPattern={initPattern}
+            onInitPatternChange={setInitPattern}
             onReset={() => {
               setIsRunning(false);
               setResetToken(t => t + 1);
@@ -33,6 +41,8 @@ export default function Home() {
             isRunning={isRunning}
             speed={speed}
             transparency={transparency}
+            gridSize={gridSize}
+            initPattern={initPattern}
             resetToken={resetToken}
           />
         </SidebarInset>

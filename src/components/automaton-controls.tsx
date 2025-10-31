@@ -6,6 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarTrigger } from "@/components/ui/sidebar";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { InitPattern } from "@/app/page";
 
 type AutomatonControlsProps = {
   isRunning: boolean;
@@ -14,6 +16,10 @@ type AutomatonControlsProps = {
   onSpeedChange: (value: number) => void;
   transparency: number;
   onTransparencyChange: (value: number) => void;
+  gridSize: number;
+  onGridSizeChange: (value: number) => void;
+  initPattern: InitPattern;
+  onInitPatternChange: (value: InitPattern) => void;
   onReset: () => void;
 };
 
@@ -24,6 +30,10 @@ export function AutomatonControls({
   onSpeedChange,
   transparency,
   onTransparencyChange,
+  gridSize,
+  onGridSizeChange,
+  initPattern,
+  onInitPatternChange,
   onReset,
 }: AutomatonControlsProps) {
   return (
@@ -38,18 +48,8 @@ export function AutomatonControls({
       <Separator />
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Controls</SidebarGroupLabel>
+          <SidebarGroupLabel>Simulation</SidebarGroupLabel>
           <SidebarGroupContent className="space-y-6 p-2 group-data-[collapsible=icon]:hidden">
-            <div className="space-y-3">
-              <Label htmlFor="transparency">Cell Opacity</Label>
-              <Slider
-                id="transparency"
-                value={[transparency]}
-                onValueChange={(v) => onTransparencyChange(v[0])}
-                max={100}
-                step={1}
-              />
-            </div>
             <div className="space-y-3">
               <Label htmlFor="speed">Simulation Speed</Label>
               <Slider
@@ -60,6 +60,44 @@ export function AutomatonControls({
                 min={1}
                 step={1}
               />
+            </div>
+            <div className="space-y-3">
+              <Label htmlFor="transparency">Cell Opacity</Label>
+              <Slider
+                id="transparency"
+                value={[transparency]}
+                onValueChange={(v) => onTransparencyChange(v[0])}
+                max={100}
+                step={1}
+              />
+            </div>
+          </SidebarGroupContent>
+        </SidebarGroup>
+         <SidebarGroup>
+          <SidebarGroupLabel>Setup</SidebarGroupLabel>
+          <SidebarGroupContent className="space-y-6 p-2 group-data-[collapsible=icon]:hidden">
+             <div className="space-y-3">
+              <Label htmlFor="grid-size">Grid Size</Label>
+              <Slider
+                id="grid-size"
+                value={[gridSize]}
+                onValueChange={(v) => onGridSizeChange(v[0])}
+                max={20}
+                min={5}
+                step={1}
+              />
+            </div>
+             <div className="space-y-3">
+                <Label htmlFor="init-pattern">Initial State</Label>
+                <Select value={initPattern} onValueChange={onInitPatternChange}>
+                  <SelectTrigger id="init-pattern">
+                    <SelectValue placeholder="Select initial state" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="random">Random</SelectItem>
+                    <SelectItem value="dots">Grid of Dots</SelectItem>
+                  </SelectContent>
+                </Select>
             </div>
           </SidebarGroupContent>
         </SidebarGroup>
