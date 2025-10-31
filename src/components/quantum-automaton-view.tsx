@@ -72,9 +72,13 @@ export function QuantumAutomatonView({
             neighborSum += currentGrid[nx][ny][nz];
           }
           const avg = neighborSum / 26;
-          const oldState = currentGrid[x][y][z];
           
-          let newState = oldState - (avg - 0.5) * 0.2 + (Math.random() - 0.5) * 0.05;
+          const oldState = currentGrid[x][y][z];
+          let newState = oldState * 0.9 + (1.0 - avg) * 0.1;
+
+          if (Math.random() < 0.05) {
+             newState = Math.random();
+          }
 
           newState = Math.max(0, Math.min(1, newState));
 
@@ -84,16 +88,20 @@ export function QuantumAutomatonView({
     }
     gridRef.current = newGrid;
   }, []);
-
+  
   const updateMeshes = useCallback((opacityMultiplier: number) => {
     const grid = gridRef.current;
     const meshes = meshesRef.current;
+    if (!meshes.length) return;
     for (let x = 0; x < GRID_SIZE; x++) {
       for (let y = 0; y < GRID_SIZE; y++) {
         for (let z = 0; z < GRID_SIZE; z++) {
           if (meshes[x] && meshes[x][y] && meshes[x][y][z]) {
             const mesh = meshes[x][y][z];
             (mesh.material as THREE.MeshStandardMaterial).opacity = grid[x][y][z] * opacityMultiplier;
+             const color = new THREE.Color(0xffffff);
+             color.lerp(new THREE.Color(0x000000), 1 - grid[x][y][z]);
+            (mesh.material as THREE.MeshStandardMaterial).color = color;
           }
         }
       }
@@ -102,7 +110,9 @@ export function QuantumAutomatonView({
 
   useEffect(() => {
     initGrid();
-    updateMeshes(transparency / 100);
+    if(meshesRef.current.length > 0) {
+      updateMeshes(transparency / 100);
+    }
   }, [resetToken, initGrid, updateMeshes, transparency]);
 
 
@@ -145,6 +155,8 @@ export function QuantumAutomatonView({
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
     directionalLight.position.set(5, 10, 7.5);
     scene.add(directionalLight);
+    
+    initGrid(); // Ensure grid is initialized before creating meshes
 
     const newMeshes: THREE.Mesh[][][] = [];
     const geometry = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, CELL_SIZE);
@@ -177,6 +189,7 @@ export function QuantumAutomatonView({
     }
     meshesRef.current = newMeshes;
     updateMeshes(transparency/100);
+    lastTickTimeRef.current = 0;
 
     const animate = (time: number) => {
       frameIdRef.current = requestAnimationFrame(animate);
@@ -185,10 +198,6 @@ export function QuantumAutomatonView({
       if (currentControls) {
         currentControls.update();
       }
-
-      const currentRenderer = rendererRef.current;
-      const currentScene = sceneRef.current;
-      const currentCamera = cameraRef.current;
 
       if (isRunning) {
         const maxDelay = 1000;
@@ -202,6 +211,9 @@ export function QuantumAutomatonView({
         }
       }
       
+      const currentRenderer = rendererRef.current;
+      const currentScene = sceneRef.current;
+      const currentCamera = cameraRef.current;
       if (currentRenderer && currentScene && currentCamera) {
         currentRenderer.render(currentScene, currentCamera);
       }
@@ -232,12 +244,13 @@ export function QuantumAutomatonView({
         if(mesh.geometry) mesh.geometry.dispose();
         if(mesh.material) (mesh.material as THREE.Material).dispose();
       });
+      meshesRef.current = [];
 
       if (rendererRef.current) {
         rendererRef.current.dispose();
       }
     };
-  }, [isMounted, resetToken]);
+  }, [isMounted, resetToken, initGrid, updateSimulation, updateMeshes, speed, transparency, isRunning]);
 
   useEffect(() => {
     if(isMounted) {
