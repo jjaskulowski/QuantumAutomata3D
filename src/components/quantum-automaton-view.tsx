@@ -73,7 +73,15 @@ export function QuantumAutomatonView({
           }
           const avg = neighborSum / 26;
           const oldState = currentGrid[x][y][z];
-          newGrid[x][y][z] = (oldState * 0.5 + (1.0 - avg) * 0.5);
+          
+          // New rule: state is influenced by the difference from neighbors, with some randomness
+          const diff = oldState - avg;
+          let newState = oldState + diff * 0.1 + (Math.random() - 0.5) * 0.02;
+
+          // Clamp the value between 0 and 1
+          newState = Math.max(0, Math.min(1, newState));
+
+          newGrid[x][y][z] = newState;
         }
       }
     }
@@ -94,6 +102,12 @@ export function QuantumAutomatonView({
       }
     }
   }, []);
+
+  useEffect(() => {
+    initGrid();
+    updateMeshes(transparency / 100);
+  }, [resetToken, initGrid, updateMeshes, transparency]);
+
 
   useEffect(() => {
     if (!isMounted || !mountRef.current) return;
@@ -142,7 +156,6 @@ export function QuantumAutomatonView({
     scene.add(directionalLight);
 
     // Grid and Meshes
-    initGrid();
     const newMeshes: THREE.Mesh[][][] = [];
     const geometry = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, CELL_SIZE);
     const gridOffset = -(GRID_SIZE - 1) * TOTAL_CELL_SIZE / 2;
@@ -173,6 +186,7 @@ export function QuantumAutomatonView({
       newMeshes.push(plane);
     }
     meshesRef.current = newMeshes;
+    updateMeshes(transparency/100);
 
     // Animation Loop
     const animate = (time: number) => {
@@ -231,7 +245,7 @@ export function QuantumAutomatonView({
         rendererRef.current.dispose();
       }
     };
-  }, [isMounted, resetToken, isRunning, speed, transparency, initGrid, updateSimulation, updateMeshes]);
+  }, [isMounted, resetToken]);
 
   useEffect(() => {
     if(isMounted) {
