@@ -72,7 +72,11 @@ export function QuantumAutomatonView({
             neighborSum += currentGrid[nx][ny][nz];
           }
           const avg = neighborSum / 26;
-          newGrid[x][y][z] = 1.0 - avg;
+          // A simple but more dynamic rule:
+          // A cell's new state is a mix of its old state and the inverse of the neighbor average.
+          // This creates more complex patterns.
+          const oldState = currentGrid[x][y][z];
+          newGrid[x][y][z] = (oldState * 0.5 + (1.0 - avg) * 0.5);
         }
       }
     }
