@@ -111,10 +111,12 @@ export function QuantumAutomatonView({
     gridRef.current = newGrid;
   }, [gridSize]);
   
-  const updateMeshes = useCallback((opacityMultiplier: number) => {
+  const updateMeshes = useCallback(() => {
     const grid = gridRef.current;
     const meshes = meshesRef.current;
     if (!meshes.length || !grid.length) return;
+    const opacityMultiplier = transparency / 100;
+
     for (let x = 0; x < gridSize; x++) {
       for (let y = 0; y < gridSize; y++) {
         for (let z = 0; z < gridSize; z++) {
@@ -129,15 +131,7 @@ export function QuantumAutomatonView({
         }
       }
     }
-  }, [gridSize]);
-
-  useEffect(() => {
-    initGrid();
-    if(meshesRef.current.length > 0) {
-      updateMeshes(transparency / 100);
-    }
-  }, [resetToken, initGrid, updateMeshes, transparency]);
-
+  }, [gridSize, transparency]);
 
   useEffect(() => {
     if (!isMounted || !mountRef.current) return;
@@ -215,8 +209,8 @@ export function QuantumAutomatonView({
       newMeshes.push(plane);
     }
     meshesRef.current = newMeshes;
-    updateMeshes(transparency/100);
-    lastTickTimeRef.current = performance.now();
+    updateMeshes();
+    lastTickTimeRef.current = 0;
 
     const animate = (time: number) => {
       frameIdRef.current = requestAnimationFrame(animate);
@@ -230,7 +224,7 @@ export function QuantumAutomatonView({
   
         if (time - lastTickTimeRef.current > currentDelay) {
           updateSimulation();
-          updateMeshes(transparency / 100);
+          updateMeshes();
           lastTickTimeRef.current = time;
         }
       }
@@ -262,11 +256,11 @@ export function QuantumAutomatonView({
       meshesRef.current = [];
       rendererRef.current?.dispose();
     };
-  }, [isMounted, resetToken, gridSize, initGrid]);
+  }, [isMounted, resetToken, gridSize, initGrid, updateSimulation, updateMeshes, transparency]);
 
   useEffect(() => {
     if(isMounted) {
-      updateMeshes(transparency / 100);
+      updateMeshes();
     }
   }, [transparency, isMounted, updateMeshes]);
 

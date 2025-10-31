@@ -27,9 +27,17 @@ export default function Home() {
             transparency={transparency}
             onTransparencyChange={setTransparency}
             gridSize={gridSize}
-            onGridSizeChange={setGridSize}
+            onGridSizeChange={(newSize) => {
+              if (newSize !== gridSize) {
+                setGridSize(newSize);
+                setResetToken(t => t + 1);
+              }
+            }}
             initPattern={initPattern}
-            onInitPatternChange={setInitPattern}
+            onInitPatternChange={(pattern) => {
+              setInitPattern(pattern);
+              setResetToken(t => t + 1);
+            }}
             onReset={() => {
               setIsRunning(false);
               setResetToken(t => t + 1);
