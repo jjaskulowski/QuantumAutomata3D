@@ -74,11 +74,9 @@ export function QuantumAutomatonView({
           const avg = neighborSum / 26;
           const oldState = currentGrid[x][y][z];
           
-          // New rule: state is influenced by the difference from neighbors, with some randomness
           const diff = oldState - avg;
           let newState = oldState + diff * 0.1 + (Math.random() - 0.5) * 0.02;
 
-          // Clamp the value between 0 and 1
           newState = Math.max(0, Math.min(1, newState));
 
           newGrid[x][y][z] = newState;
@@ -112,7 +110,6 @@ export function QuantumAutomatonView({
   useEffect(() => {
     if (!isMounted || !mountRef.current) return;
 
-    // Cleanup previous instance
     if (rendererRef.current) {
         rendererRef.current.dispose();
         if (mountRef.current) mountRef.current.innerHTML = '';
@@ -123,39 +120,33 @@ export function QuantumAutomatonView({
     
     const mount = mountRef.current;
 
-    // Scene
     const scene = new THREE.Scene();
     sceneRef.current = scene;
     
-    // Camera
     const camera = new THREE.PerspectiveCamera(75, mount.clientWidth / mount.clientHeight, 0.1, 1000);
     camera.position.z = GRID_SIZE * 1.8;
     camera.position.y = GRID_SIZE * 1.2;
     camera.position.x = GRID_SIZE * 1.5;
     cameraRef.current = camera;
 
-    // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
     mount.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.1;
     controls.rotateSpeed = 0.5;
     controlsRef.current = controls;
 
-    // Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     scene.add(ambientLight);
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
     directionalLight.position.set(5, 10, 7.5);
     scene.add(directionalLight);
 
-    // Grid and Meshes
     const newMeshes: THREE.Mesh[][][] = [];
     const geometry = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, CELL_SIZE);
     const gridOffset = -(GRID_SIZE - 1) * TOTAL_CELL_SIZE / 2;
@@ -188,7 +179,6 @@ export function QuantumAutomatonView({
     meshesRef.current = newMeshes;
     updateMeshes(transparency/100);
 
-    // Animation Loop
     const animate = (time: number) => {
       frameIdRef.current = requestAnimationFrame(animate);
       
@@ -196,6 +186,10 @@ export function QuantumAutomatonView({
       if (currentControls) {
         currentControls.update();
       }
+
+      const currentRenderer = rendererRef.current;
+      const currentScene = sceneRef.current;
+      const currentCamera = cameraRef.current;
 
       if (isRunning) {
         const maxDelay = 1000;
@@ -209,13 +203,12 @@ export function QuantumAutomatonView({
         }
       }
       
-      if (rendererRef.current && sceneRef.current && cameraRef.current) {
-        rendererRef.current.render(sceneRef.current, cameraRef.current);
+      if (currentRenderer && currentScene && currentCamera) {
+        currentRenderer.render(currentScene, currentCamera);
       }
     };
     animate(0);
 
-    // Handle resize
     const handleResize = () => {
       if (mountRef.current && cameraRef.current && rendererRef.current) {
         cameraRef.current.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
