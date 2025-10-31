@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useIsMounted } from '@/hooks/use-is-mounted';
@@ -48,16 +48,16 @@ export function QuantumAutomatonView({
   const lastTickTimeRef = useRef(0);
   const frameIdRef = useRef<number>();
 
-  const initGrid = () => {
+  const initGrid = useCallback(() => {
     const grid = Array(GRID_SIZE).fill(0).map(() =>
       Array(GRID_SIZE).fill(0).map(() =>
         Array(GRID_SIZE).fill(0).map(() => Math.random())
       )
     );
     gridRef.current = grid;
-  };
+  }, []);
 
-  const updateSimulation = () => {
+  const updateSimulation = useCallback(() => {
     const currentGrid = gridRef.current;
     const newGrid = currentGrid.map(plane => plane.map(row => row.slice()));
 
@@ -72,18 +72,15 @@ export function QuantumAutomatonView({
             neighborSum += currentGrid[nx][ny][nz];
           }
           const avg = neighborSum / 26;
-          // A simple but more dynamic rule:
-          // A cell's new state is a mix of its old state and the inverse of the neighbor average.
-          // This creates more complex patterns.
           const oldState = currentGrid[x][y][z];
           newGrid[x][y][z] = (oldState * 0.5 + (1.0 - avg) * 0.5);
         }
       }
     }
     gridRef.current = newGrid;
-  };
+  }, []);
 
-  const updateMeshes = (opacityMultiplier: number) => {
+  const updateMeshes = useCallback((opacityMultiplier: number) => {
     const grid = gridRef.current;
     const meshes = meshesRef.current;
     for (let x = 0; x < GRID_SIZE; x++) {
@@ -96,7 +93,7 @@ export function QuantumAutomatonView({
         }
       }
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (!isMounted || !mountRef.current) return;
@@ -104,7 +101,7 @@ export function QuantumAutomatonView({
     // Cleanup previous instance
     if (rendererRef.current) {
         rendererRef.current.dispose();
-        mountRef.current.innerHTML = '';
+        if (mountRef.current) mountRef.current.innerHTML = '';
     }
     if (frameIdRef.current) {
         cancelAnimationFrame(frameIdRef.current);
@@ -146,14 +143,14 @@ export function QuantumAutomatonView({
 
     // Grid and Meshes
     initGrid();
-    const newMeshes = [];
+    const newMeshes: THREE.Mesh[][][] = [];
     const geometry = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, CELL_SIZE);
     const gridOffset = -(GRID_SIZE - 1) * TOTAL_CELL_SIZE / 2;
 
     for (let x = 0; x < GRID_SIZE; x++) {
-      const plane = [];
+      const plane: THREE.Mesh[][] = [];
       for (let y = 0; y < GRID_SIZE; y++) {
-        const row = [];
+        const row: THREE.Mesh[] = [];
         for (let z = 0; z < GRID_SIZE; z++) {
           const material = new THREE.MeshStandardMaterial({
             color: 0xffffff,
@@ -180,28 +177,36 @@ export function QuantumAutomatonView({
     // Animation Loop
     const animate = (time: number) => {
       frameIdRef.current = requestAnimationFrame(animate);
-      controls.update();
+      
+      const currentControls = controlsRef.current;
+      if (currentControls) {
+        currentControls.update();
+      }
 
-      const maxDelay = 1000;
-      const minDelay = 10;
-      const currentDelay = maxDelay - ((speed - 1) / 99) * (maxDelay - minDelay);
-
-      if (isRunning && time - lastTickTimeRef.current > currentDelay) {
-        updateSimulation();
-        updateMeshes(transparency / 100);
-        lastTickTimeRef.current = time;
+      if (isRunning) {
+        const maxDelay = 1000;
+        const minDelay = 10;
+        const currentDelay = maxDelay - ((speed - 1) / 99) * (maxDelay - minDelay);
+  
+        if (time - lastTickTimeRef.current > currentDelay) {
+          updateSimulation();
+          updateMeshes(transparency / 100);
+          lastTickTimeRef.current = time;
+        }
       }
       
-      renderer.render(scene, camera);
+      if (rendererRef.current && sceneRef.current && cameraRef.current) {
+        rendererRef.current.render(sceneRef.current, cameraRef.current);
+      }
     };
     animate(0);
 
     // Handle resize
     const handleResize = () => {
-      if (mount) {
-        camera.aspect = mount.clientWidth / mount.clientHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(mount.clientWidth, mount.clientHeight);
+      if (mountRef.current && cameraRef.current && rendererRef.current) {
+        cameraRef.current.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
+        cameraRef.current.updateProjectionMatrix();
+        rendererRef.current.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
       }
     };
     window.addEventListener('resize', handleResize);
@@ -209,20 +214,30 @@ export function QuantumAutomatonView({
     return () => {
       window.removeEventListener('resize', handleResize);
       if(frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
-      controls.dispose();
-      if(mount) mount.innerHTML = "";
-      // Dispose materials and geometries
+      
+      const currentControls = controlsRef.current;
+      if (currentControls) {
+          currentControls.dispose();
+      }
+      
+      if(mountRef.current) mountRef.current.innerHTML = "";
+      
       meshesRef.current.flat(3).forEach(mesh => {
         if(mesh.geometry) mesh.geometry.dispose();
         if(mesh.material) (mesh.material as THREE.Material).dispose();
       });
-      renderer.dispose();
+
+      if (rendererRef.current) {
+        rendererRef.current.dispose();
+      }
     };
-  }, [isMounted, resetToken]);
+  }, [isMounted, resetToken, isRunning, speed, transparency, initGrid, updateSimulation, updateMeshes]);
 
   useEffect(() => {
-    updateMeshes(transparency / 100);
-  }, [transparency]);
+    if(isMounted) {
+      updateMeshes(transparency / 100);
+    }
+  }, [transparency, isMounted, updateMeshes]);
 
 
   if (!isMounted) {
