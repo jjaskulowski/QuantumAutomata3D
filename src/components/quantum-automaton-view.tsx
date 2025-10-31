@@ -91,12 +91,12 @@ export function QuantumAutomatonView({
             const nx = (x + offset.x + gridSize) % gridSize;
             const ny = (y + offset.y + gridSize) % gridSize;
             const nz = (z + offset.z + gridSize) % gridSize;
-            neighborSum += currentGrid[nx][ny][nz];
+            neighborSum += 1.0 - currentGrid[nx][ny][nz];
           }
           const avg = neighborSum / 26;
           
           const oldState = currentGrid[x][y][z];
-          let newState = oldState - (1 - avg);
+          let newState = oldState - avg;
 
           newState = Math.max(0, Math.min(1, newState));
 
@@ -252,13 +252,26 @@ export function QuantumAutomatonView({
       meshesRef.current = [];
       rendererRef.current?.dispose();
     };
-  }, [isMounted, resetToken, gridSize, initGrid, updateSimulation, updateMeshes, transparency]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMounted, resetToken]);
 
   useEffect(() => {
     if(isMounted) {
       updateMeshes();
     }
   }, [transparency, isMounted, updateMeshes]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+
+    if (!scene || !camera) return;
+
+    camera.position.z = gridSize * 1.8;
+    camera.position.y = gridSize * 1.2;
+    camera.position.x = gridSize * 1.5;
+    camera.lookAt(0,0,0)
+  }, [gridSize]);
 
 
   if (!isMounted) {
@@ -267,3 +280,5 @@ export function QuantumAutomatonView({
 
   return <div ref={mountRef} className="h-full w-full outline-none" tabIndex={0} />;
 }
+
+    
