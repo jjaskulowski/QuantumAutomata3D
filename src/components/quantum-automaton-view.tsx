@@ -214,9 +214,10 @@ export function QuantumAutomatonView({
       controlsRef.current?.update();
 
       if (isRunning) {
+        const minDelay = 10; 
         const maxDelay = 1000;
-        const minDelay = 10;
-        const currentDelay = maxDelay - ((speed - 1) / 99) * (maxDelay - minDelay);
+        // Invert speed so that 1 is fast and 100 is slow
+        const currentDelay = minDelay + ((100 - speed) / 99) * (maxDelay - minDelay);
   
         if (time - lastTickTimeRef.current > currentDelay) {
           updateSimulation();
@@ -280,5 +281,3 @@ export function QuantumAutomatonView({
 
   return <div ref={mountRef} className="h-full w-full outline-none" tabIndex={0} />;
 }
-
-    
