@@ -96,7 +96,7 @@ export function QuantumAutomatonView({
           const avg = neighborSum / 26;
           
           const oldState = currentGrid[x][y][z];
-          let newState = oldState - avg;
+          let newState = Math.abs(oldState - avg);
 
           newState = Math.max(0, Math.min(1, newState));
 
@@ -216,7 +216,6 @@ export function QuantumAutomatonView({
       if (isRunning) {
         const minDelay = 10; 
         const maxDelay = 1000;
-        // Invert speed so that 1 is fast and 100 is slow
         const currentDelay = minDelay + ((100 - speed) / 99) * (maxDelay - minDelay);
   
         if (time - lastTickTimeRef.current > currentDelay) {
