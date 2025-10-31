@@ -74,8 +74,7 @@ export function QuantumAutomatonView({
           const avg = neighborSum / 26;
           const oldState = currentGrid[x][y][z];
           
-          const diff = oldState - avg;
-          let newState = oldState + diff * 0.1 + (Math.random() - 0.5) * 0.02;
+          let newState = oldState - (avg - 0.5) * 0.2 + (Math.random() - 0.5) * 0.05;
 
           newState = Math.max(0, Math.min(1, newState));
 
