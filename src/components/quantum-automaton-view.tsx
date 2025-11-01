@@ -113,15 +113,30 @@ export function QuantumAutomatonView({
     if (!meshes.length || !grid.length) return;
     const opacityMultiplier = transparency / 100;
 
+    const redColor = new THREE.Color(0xff0000);
+    const blueColor = new THREE.Color(0x0000ff);
+    const midColor = new THREE.Color(0xffffff);
+
     for (let x = 0; x < gridSize; x++) {
       for (let y = 0; y < gridSize; y++) {
         for (let z = 0; z < gridSize; z++) {
           if (meshes[x] && meshes[x][y] && meshes[x][y][z]) {
             const mesh = meshes[x][y][z];
             const value = grid[x]?.[y]?.[z] ?? 0;
-            (mesh.material as THREE.MeshStandardMaterial).opacity = value * opacityMultiplier;
-             const color = new THREE.Color(0xffffff);
-             color.lerp(new THREE.Color(0x000000), 1 - value);
+            
+            // Transparency: 0.5 is opaque, 0 and 1 are transparent
+            const opacity = 1.0 - 2.0 * Math.abs(value - 0.5);
+            (mesh.material as THREE.MeshStandardMaterial).opacity = opacity * opacityMultiplier;
+            
+            // Color: < 0.5 is red, > 0.5 is blue
+            const color = new THREE.Color();
+            if (value < 0.5) {
+              // Lerp from white to red
+              color.lerpColors(midColor, redColor, (0.5 - value) * 2);
+            } else {
+              // Lerp from white to blue
+              color.lerpColors(midColor, blueColor, (value - 0.5) * 2);
+            }
             (mesh.material as THREE.MeshStandardMaterial).color = color;
           }
         }
