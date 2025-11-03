@@ -7,7 +7,7 @@ import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarTrigger } from "@/components/ui/sidebar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { InitPattern } from "@/app/page";
+import type { FrameDisplayMode, InitPattern } from "@/app/page";
 
 type AutomatonControlsProps = {
   isRunning: boolean;
@@ -18,6 +18,8 @@ type AutomatonControlsProps = {
   onTransparencyChange: (value: number) => void;
   gridSize: number;
   onGridSizeChange: (value: number) => void;
+  frameDisplayMode: FrameDisplayMode;
+  onFrameDisplayModeChange: (value: FrameDisplayMode) => void;
   initPattern: InitPattern;
   onInitPatternChange: (value: InitPattern) => void;
   onReset: () => void;
@@ -32,6 +34,8 @@ export function AutomatonControls({
   onTransparencyChange,
   gridSize,
   onGridSizeChange,
+  frameDisplayMode,
+  onFrameDisplayModeChange,
   initPattern,
   onInitPatternChange,
   onReset,
@@ -71,6 +75,19 @@ export function AutomatonControls({
                 step={1}
               />
             </div>
+            <div className="space-y-3">
+              <Label htmlFor="frame-display-mode">Frame Display</Label>
+              <Select value={frameDisplayMode} onValueChange={(value: FrameDisplayMode) => onFrameDisplayModeChange(value)}>
+                <SelectTrigger id="frame-display-mode">
+                  <SelectValue placeholder="Select frame display" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Frames</SelectItem>
+                  <SelectItem value="even">Even Frames</SelectItem>
+                  <SelectItem value="odd">Odd Frames</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </SidebarGroupContent>
         </SidebarGroup>
          <SidebarGroup>
@@ -82,7 +99,7 @@ export function AutomatonControls({
                 id="grid-size"
                 value={[gridSize]}
                 onValueChange={(v) => onGridSizeChange(v[0])}
-                max={20}
+                max={60}
                 min={5}
                 step={1}
               />

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useIsMounted } from '@/hooks/use-is-mounted';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { InitPattern } from '@/app/page';
+import type { FrameDisplayMode, InitPattern } from '@/app/page';
 
 type QuantumAutomatonViewProps = {
   isRunning: boolean;
@@ -14,6 +14,7 @@ type QuantumAutomatonViewProps = {
   gridSize: number;
   initPattern: InitPattern;
   resetToken: number;
+  frameDisplayMode: FrameDisplayMode;
 };
 
 const CELL_SIZE = 1;
@@ -35,6 +36,7 @@ export function QuantumAutomatonView({
   gridSize,
   initPattern,
   resetToken,
+  frameDisplayMode,
 }: QuantumAutomatonViewProps) {
   const isMounted = useIsMounted();
   const mountRef = useRef<HTMLDivElement>(null);
@@ -46,6 +48,8 @@ export function QuantumAutomatonView({
   const meshesRef = useRef<THREE.Mesh[][][]>([]);
   const lastTickTimeRef = useRef(0);
   const frameIdRef = useRef<number>();
+  const tickCountRef = useRef(0);
+  const frameDisplayModeRef = useRef<FrameDisplayMode>(frameDisplayMode);
 
   const initGrid = useCallback(() => {
     const totalCells = gridSize * gridSize * gridSize;
@@ -262,6 +266,7 @@ export function QuantumAutomatonView({
     meshesRef.current = newMeshes;
     updateMeshes();
     lastTickTimeRef.current = 0;
+    tickCountRef.current = 0;
 
     const animate = (time: number) => {
       frameIdRef.current = requestAnimationFrame(animate);
@@ -275,7 +280,15 @@ export function QuantumAutomatonView({
   
         if (time - lastTickTimeRef.current > currentDelay) {
           updateSimulation();
-          updateMeshes();
+          tickCountRef.current += 1;
+          const mode = frameDisplayModeRef.current;
+          const shouldRender =
+            mode === 'all' ||
+            (mode === 'even' && tickCountRef.current % 2 === 0) ||
+            (mode === 'odd' && tickCountRef.current % 2 === 1);
+          if (shouldRender) {
+            updateMeshes();
+          }
           lastTickTimeRef.current = time;
         }
       }
@@ -313,6 +326,13 @@ export function QuantumAutomatonView({
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted, resetToken]);
+
+  useEffect(() => {
+    frameDisplayModeRef.current = frameDisplayMode;
+    if (isMounted) {
+      updateMeshes();
+    }
+  }, [frameDisplayMode, isMounted, updateMeshes]);
 
   useEffect(() => {
     if(isMounted) {

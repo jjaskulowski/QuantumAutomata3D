@@ -6,14 +6,16 @@ import { AutomatonControls } from "@/components/automaton-controls";
 import { QuantumAutomatonView } from "@/components/quantum-automaton-view";
 
 export type InitPattern = "random" | "dots";
+export type FrameDisplayMode = "all" | "even" | "odd";
 
 export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
   const [speed, setSpeed] = useState(50); // 1-100 scale
   const [transparency, setTransparency] = useState(30); // 0-100 scale
-  const [gridSize, setGridSize] = useState(10); // 5-20 scale
+  const [gridSize, setGridSize] = useState(10); // 5-60 scale
   const [initPattern, setInitPattern] = useState<InitPattern>("random");
   const [resetToken, setResetToken] = useState(0);
+  const [frameDisplayMode, setFrameDisplayMode] = useState<FrameDisplayMode>("all");
 
   return (
     <main className="h-screen w-screen">
@@ -33,6 +35,8 @@ export default function Home() {
                 setResetToken(t => t + 1);
               }
             }}
+            frameDisplayMode={frameDisplayMode}
+            onFrameDisplayModeChange={setFrameDisplayMode}
             initPattern={initPattern}
             onInitPatternChange={(pattern) => {
               setInitPattern(pattern);
@@ -52,6 +56,7 @@ export default function Home() {
             gridSize={gridSize}
             initPattern={initPattern}
             resetToken={resetToken}
+            frameDisplayMode={frameDisplayMode}
           />
         </SidebarInset>
       </SidebarProvider>
