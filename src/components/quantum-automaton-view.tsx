@@ -170,13 +170,11 @@ export function QuantumAutomatonView({
     const midColor = midColorRef.current;
     const tempColor = tempColorRef.current;
 
-    const instanceColor = instancedMesh.instanceColor;
-    const colors = instanceColor?.array as Float32Array | undefined;
     const opacities = opacityAttribute.array as Float32Array;
 
-    if (!instanceColor || !colors) return;
+    const instanceColor = instancedMesh.instanceColor;
+    if (!instanceColor) return;
 
-    let colorIndex = 0;
     for (let x = 0; x < grid.size; x++) {
       for (let y = 0; y < grid.size; y++) {
         for (let z = 0; z < grid.size; z++) {
@@ -191,9 +189,7 @@ export function QuantumAutomatonView({
             tempColor.lerpColors(midColor, blueColor, (value - 0.5) * 2);
           }
 
-          colors[colorIndex] = tempColor.r;
-          colors[colorIndex + 1] = tempColor.g;
-          colors[colorIndex + 2] = tempColor.b;
+          instancedMesh.setColorAt(cellIndex, tempColor);
 
           let effectiveOpacity = opacity;
           if (visibilityMode === 'active' && value < 0.5) {
@@ -203,8 +199,6 @@ export function QuantumAutomatonView({
           }
 
           opacities[cellIndex] = Math.max(0, Math.min(1, effectiveOpacity));
-
-          colorIndex += 3;
         }
       }
     }
