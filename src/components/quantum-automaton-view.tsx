@@ -19,19 +19,14 @@ type QuantumAutomatonViewProps = {
 const CELL_SIZE = 1;
 const CELL_GAP = 0.2;
 const TOTAL_CELL_SIZE = CELL_SIZE + CELL_GAP;
+const NEIGHBOR_COUNT = 26;
 
-const NEIGHBOR_OFFSETS = (() => {
-    const offsets = [];
-    for (let x = -1; x <= 1; x++) {
-        for (let y = -1; y <= 1; y++) {
-            for (let z = -1; z <= 1; z++) {
-                if (x === 0 && y === 0 && z === 0) continue;
-                offsets.push({ x, y, z });
-            }
-        }
-    }
-    return offsets;
-})();
+type GridState = {
+  size: number;
+  buffers: [Float32Array, Float32Array];
+  activeBufferIndex: 0 | 1;
+  neighbors: Uint32Array;
+};
 
 export function QuantumAutomatonView({
   isRunning,
@@ -47,102 +42,135 @@ export function QuantumAutomatonView({
   const controlsRef = useRef<OrbitControls | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const gridRef = useRef<number[][][]>([]);
+  const gridRef = useRef<GridState | null>(null);
   const meshesRef = useRef<THREE.Mesh[][][]>([]);
   const lastTickTimeRef = useRef(0);
   const frameIdRef = useRef<number>();
 
   const initGrid = useCallback(() => {
-    let grid: number[][][] = [];
-     if (initPattern === 'dots') {
-      grid = Array(gridSize).fill(0).map(() =>
-        Array(gridSize).fill(0).map(() =>
-          Array(gridSize).fill(0)
-        )
-      );
+    const totalCells = gridSize * gridSize * gridSize;
+    const buffers: [Float32Array, Float32Array] = [
+      new Float32Array(totalCells),
+      new Float32Array(totalCells),
+    ];
+
+    const primaryBuffer = buffers[0];
+    const sizeSquared = gridSize * gridSize;
+
+    if (initPattern === 'dots') {
       for (let x = 1; x < gridSize; x += 3) {
         for (let y = 1; y < gridSize; y += 3) {
           for (let z = 1; z < gridSize; z += 3) {
-            if(x < gridSize && y < gridSize && z < gridSize) {
-               grid[x][y][z] = 1;
+            if (x < gridSize && y < gridSize && z < gridSize) {
+              const index = x * sizeSquared + y * gridSize + z;
+              primaryBuffer[index] = 1;
             }
           }
         }
       }
     } else {
-       grid = Array(gridSize).fill(0).map(() =>
-        Array(gridSize).fill(0).map(() =>
-          Array(gridSize).fill(0).map(() => Math.random())
-        )
-      );
+      for (let i = 0; i < totalCells; i++) {
+        primaryBuffer[i] = Math.random();
+      }
     }
-    gridRef.current = grid;
-  }, [gridSize, initPattern]);
 
-  const updateSimulation = useCallback(() => {
-    const currentGrid = gridRef.current;
-    const newGrid = currentGrid.map(plane => plane.map(row => row.slice()));
+    const neighbors = new Uint32Array(totalCells * NEIGHBOR_COUNT);
+    const neighborOffsets = [-1, 0, 1];
+    let neighborWriteIndex = 0;
 
     for (let x = 0; x < gridSize; x++) {
       for (let y = 0; y < gridSize; y++) {
         for (let z = 0; z < gridSize; z++) {
-          let neighborSum = 0;
-          for (const offset of NEIGHBOR_OFFSETS) {
-            const nx = (x + offset.x + gridSize) % gridSize;
-            const ny = (y + offset.y + gridSize) % gridSize;
-            const nz = (z + offset.z + gridSize) % gridSize;
-            neighborSum += 1.0 - currentGrid[nx][ny][nz];
+          for (const dx of neighborOffsets) {
+            for (const dy of neighborOffsets) {
+              for (const dz of neighborOffsets) {
+                if (dx === 0 && dy === 0 && dz === 0) {
+                  continue;
+                }
+                const nx = (x + dx + gridSize) % gridSize;
+                const ny = (y + dy + gridSize) % gridSize;
+                const nz = (z + dz + gridSize) % gridSize;
+                neighbors[neighborWriteIndex++] =
+                  nx * sizeSquared + ny * gridSize + nz;
+              }
+            }
           }
-          const avg = neighborSum / 26;
-          
-          const oldState = currentGrid[x][y][z];
-          let newState = Math.abs(oldState - avg);
-
-          newState = Math.max(0, Math.min(1, newState));
-
-          newGrid[x][y][z] = newState;
         }
       }
     }
-    gridRef.current = newGrid;
-  }, [gridSize]);
+
+    gridRef.current = {
+      size: gridSize,
+      buffers,
+      activeBufferIndex: 0,
+      neighbors,
+    };
+  }, [gridSize, initPattern]);
+
+  const updateSimulation = useCallback(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+
+    const { buffers, neighbors } = grid;
+    const currentBufferIndex = grid.activeBufferIndex;
+    const nextBufferIndex: 0 | 1 = currentBufferIndex === 0 ? 1 : 0;
+    const currentBuffer = buffers[currentBufferIndex];
+    const nextBuffer = buffers[nextBufferIndex];
+    const totalCells = currentBuffer.length;
+
+    for (let i = 0; i < totalCells; i++) {
+      let neighborSum = 0;
+      const neighborOffset = i * NEIGHBOR_COUNT;
+      for (let j = 0; j < NEIGHBOR_COUNT; j++) {
+        neighborSum += 1.0 - currentBuffer[neighbors[neighborOffset + j]];
+      }
+
+      const avg = neighborSum / NEIGHBOR_COUNT;
+      let newState = Math.abs(currentBuffer[i] - avg);
+      if (newState < 0) newState = 0;
+      if (newState > 1) newState = 1;
+      nextBuffer[i] = newState;
+    }
+    grid.activeBufferIndex = nextBufferIndex;
+  }, []);
   
   const updateMeshes = useCallback(() => {
     const grid = gridRef.current;
     const meshes = meshesRef.current;
-    if (!meshes.length || !grid.length) return;
+    if (!grid || !meshes.length) return;
+
+    const buffer = grid.buffers[grid.activeBufferIndex];
     const opacityMultiplier = transparency / 100;
+    const sizeSquared = grid.size * grid.size;
 
     const redColor = new THREE.Color(0xff0000);
     const blueColor = new THREE.Color(0x0000ff);
     const midColor = new THREE.Color(0xffffff);
+    const tempColor = new THREE.Color();
 
-    for (let x = 0; x < gridSize; x++) {
-      for (let y = 0; y < gridSize; y++) {
-        for (let z = 0; z < gridSize; z++) {
-          if (meshes[x] && meshes[x][y] && meshes[x][y][z]) {
-            const mesh = meshes[x][y][z];
-            const value = grid[x]?.[y]?.[z] ?? 0;
-            
-            // Transparency: 0.5 is opaque, 0 and 1 are transparent
-            const opacity = 1.0 - 2.0 * Math.abs(value - 0.5);
-            (mesh.material as THREE.MeshStandardMaterial).opacity = opacity * opacityMultiplier;
-            
-            // Color: < 0.5 is red, > 0.5 is blue
-            const color = new THREE.Color();
-            if (value < 0.5) {
-              // Lerp from white to red
-              color.lerpColors(midColor, redColor, (0.5 - value) * 2);
-            } else {
-              // Lerp from white to blue
-              color.lerpColors(midColor, blueColor, (value - 0.5) * 2);
-            }
-            (mesh.material as THREE.MeshStandardMaterial).color = color;
+    for (let x = 0; x < grid.size; x++) {
+      for (let y = 0; y < grid.size; y++) {
+        for (let z = 0; z < grid.size; z++) {
+          const mesh = meshes[x]?.[y]?.[z];
+          if (!mesh) continue;
+
+          const value = buffer[x * sizeSquared + y * grid.size + z] ?? 0;
+          const material = mesh.material as THREE.MeshStandardMaterial;
+
+          const opacity = 1.0 - 2.0 * Math.abs(value - 0.5);
+          material.opacity = opacity * opacityMultiplier;
+
+          if (value < 0.5) {
+            tempColor.lerpColors(midColor, redColor, (0.5 - value) * 2);
+          } else {
+            tempColor.lerpColors(midColor, blueColor, (value - 0.5) * 2);
           }
+
+          material.color.copy(tempColor);
         }
       }
     }
-  }, [gridSize, transparency]);
+  }, [transparency]);
 
   useEffect(() => {
     if (!isMounted || !mountRef.current) return;
@@ -151,10 +179,14 @@ export function QuantumAutomatonView({
         if(frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
         controlsRef.current?.dispose();
         mountRef.current.innerHTML = "";
-        meshesRef.current.flat(3).forEach(mesh => {
-            if(mesh.geometry) mesh.geometry.dispose();
-            if(mesh.material) (mesh.material as THREE.Material).dispose();
-        });
+        for (const plane of meshesRef.current) {
+            for (const row of plane) {
+                for (const mesh of row) {
+                    if(mesh.geometry) mesh.geometry.dispose();
+                    if(mesh.material) (mesh.material as THREE.Material).dispose();
+                }
+            }
+        }
         meshesRef.current = [];
         rendererRef.current.dispose();
     }
@@ -190,19 +222,27 @@ export function QuantumAutomatonView({
     
     initGrid();
 
+    const grid = gridRef.current;
+    if (!grid) {
+      return () => undefined;
+    }
+
+    const currentBuffer = grid.buffers[grid.activeBufferIndex];
+    const sizeSquared = grid.size * grid.size;
     const newMeshes: THREE.Mesh[][][] = [];
     const geometry = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, CELL_SIZE);
-    const gridOffset = -(gridSize - 1) * TOTAL_CELL_SIZE / 2;
+    const gridOffset = -(grid.size - 1) * TOTAL_CELL_SIZE / 2;
 
-    for (let x = 0; x < gridSize; x++) {
+    for (let x = 0; x < grid.size; x++) {
       const plane: THREE.Mesh[][] = [];
-      for (let y = 0; y < gridSize; y++) {
+      for (let y = 0; y < grid.size; y++) {
         const row: THREE.Mesh[] = [];
-        for (let z = 0; z < gridSize; z++) {
+        for (let z = 0; z < grid.size; z++) {
+          const value = currentBuffer[x * sizeSquared + y * grid.size + z] ?? 0;
           const material = new THREE.MeshStandardMaterial({
             color: 0xffffff,
             transparent: true,
-            opacity: gridRef.current[x][y][z] * (transparency / 100),
+            opacity: value * (transparency / 100),
             metalness: 0.1,
             roughness: 0.5,
           });
@@ -260,10 +300,14 @@ export function QuantumAutomatonView({
       if(frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
       controlsRef.current?.dispose();
       if(mountRef.current) mountRef.current.innerHTML = "";
-      meshesRef.current.flat(3).forEach(mesh => {
-        if(mesh.geometry) mesh.geometry.dispose();
-        if(mesh.material) (mesh.material as THREE.Material).dispose();
-      });
+      for (const plane of meshesRef.current) {
+        for (const row of plane) {
+          for (const mesh of row) {
+            if(mesh.geometry) mesh.geometry.dispose();
+            if(mesh.material) (mesh.material as THREE.Material).dispose();
+          }
+        }
+      }
       meshesRef.current = [];
       rendererRef.current?.dispose();
     };
