@@ -51,7 +51,10 @@ export function QuantumAutomatonView({
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const gridRef = useRef<GridState | null>(null);
-  const meshesRef = useRef<THREE.Mesh[][][]>([]);
+  const instancedMeshRef = useRef<THREE.InstancedMesh | null>(null);
+  const instanceOpacityAttributeRef = useRef<
+    THREE.InstancedBufferAttribute | null
+  >(null);
   const lastTickTimeRef = useRef(0);
   const frameIdRef = useRef<number>();
   const tickCountRef = useRef(0);
@@ -153,8 +156,9 @@ export function QuantumAutomatonView({
 
   const updateMeshes = useCallback(() => {
     const grid = gridRef.current;
-    const meshes = meshesRef.current;
-    if (!grid || !meshes.length) return;
+    const instancedMesh = instancedMeshRef.current;
+    const opacityAttribute = instanceOpacityAttributeRef.current;
+    if (!grid || !instancedMesh || !opacityAttribute) return;
 
     const buffer = grid.buffers[grid.activeBufferIndex];
     const opacityMultiplier = transparencyRef.current / 100;
@@ -166,19 +170,20 @@ export function QuantumAutomatonView({
     const midColor = midColorRef.current;
     const tempColor = tempColorRef.current;
 
+    const instanceColor = instancedMesh.instanceColor;
+    const colors = instanceColor?.array as Float32Array | undefined;
+    const opacities = opacityAttribute.array as Float32Array;
+
+    if (!instanceColor || !colors) return;
+
+    let colorIndex = 0;
     for (let x = 0; x < grid.size; x++) {
       for (let y = 0; y < grid.size; y++) {
         for (let z = 0; z < grid.size; z++) {
-          const mesh = meshes[x]?.[y]?.[z];
-          if (!mesh) continue;
+          const cellIndex = x * sizeSquared + y * grid.size + z;
+          const value = buffer[cellIndex] ?? 0;
 
-          const value = buffer[x * sizeSquared + y * grid.size + z] ?? 0;
-          const material = mesh.material as THREE.MeshStandardMaterial;
-
-          const opacity = 1.0 - 2.0 * Math.abs(value - 0.5);
-          material.opacity = opacity * opacityMultiplier;
-          material.transparent = true;
-          material.needsUpdate = true;
+          const opacity = (1.0 - 2.0 * Math.abs(value - 0.5)) * opacityMultiplier;
 
           if (value < 0.5) {
             tempColor.lerpColors(midColor, redColor, (0.5 - value) * 2);
@@ -186,19 +191,26 @@ export function QuantumAutomatonView({
             tempColor.lerpColors(midColor, blueColor, (value - 0.5) * 2);
           }
 
-          material.color.copy(tempColor);
+          colors[colorIndex] = tempColor.r;
+          colors[colorIndex + 1] = tempColor.g;
+          colors[colorIndex + 2] = tempColor.b;
 
-          let isVisible = true;
-          if (visibilityMode === 'active') {
-            isVisible = value >= 0.5;
-          } else if (visibilityMode === 'inactive') {
-            isVisible = value < 0.5;
+          let effectiveOpacity = opacity;
+          if (visibilityMode === 'active' && value < 0.5) {
+            effectiveOpacity = 0;
+          } else if (visibilityMode === 'inactive' && value >= 0.5) {
+            effectiveOpacity = 0;
           }
 
-          mesh.visible = isVisible;
+          opacities[cellIndex] = Math.max(0, Math.min(1, effectiveOpacity));
+
+          colorIndex += 3;
         }
       }
     }
+
+    instanceColor.needsUpdate = true;
+    opacityAttribute.needsUpdate = true;
   }, []);
 
   useEffect(() => {
@@ -208,16 +220,16 @@ export function QuantumAutomatonView({
       if (frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
       controlsRef.current?.dispose();
       mountRef.current.innerHTML = '';
-      for (const plane of meshesRef.current) {
-        for (const row of plane) {
-          for (const mesh of row) {
-            if (mesh.geometry) mesh.geometry.dispose();
-            if (mesh.material) (mesh.material as THREE.Material).dispose();
-          }
-        }
+      if (instancedMeshRef.current) {
+        instancedMeshRef.current.geometry.dispose();
+        (instancedMeshRef.current.material as THREE.Material).dispose();
       }
-      meshesRef.current = [];
+      instancedMeshRef.current = null;
+      instanceOpacityAttributeRef.current = null;
       rendererRef.current.dispose();
+      sceneRef.current = null;
+      cameraRef.current = null;
+      rendererRef.current = null;
     }
 
     const mount = mountRef.current;
@@ -261,39 +273,76 @@ export function QuantumAutomatonView({
       return () => undefined;
     }
 
-    const currentBuffer = grid.buffers[grid.activeBufferIndex];
-    const sizeSquared = grid.size * grid.size;
-    const newMeshes: THREE.Mesh[][][] = [];
+    const totalCells = grid.size * grid.size * grid.size;
     const geometry = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, CELL_SIZE);
     const gridOffset = (-(grid.size - 1) * TOTAL_CELL_SIZE) / 2;
 
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 1,
+      metalness: 0.1,
+      roughness: 0.5,
+      vertexColors: true,
+      depthWrite: false,
+    });
+
+    material.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nattribute float instanceOpacity;\nvarying float vInstanceOpacity;',
+        )
+        .replace(
+          '#include <begin_vertex>',
+          '#include <begin_vertex>\nvInstanceOpacity = instanceOpacity;',
+        );
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nvarying float vInstanceOpacity;',
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          'gl_FragColor.a *= vInstanceOpacity;\n#include <dithering_fragment>',
+        );
+    };
+
+    const instancedMesh = new THREE.InstancedMesh(geometry, material, totalCells);
+    instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    const colors = new Float32Array(totalCells * 3);
+    instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
+    instancedMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
+    const opacityAttribute = new THREE.InstancedBufferAttribute(
+      new Float32Array(totalCells),
+      1,
+    );
+    opacityAttribute.setUsage(THREE.DynamicDrawUsage);
+    instancedMesh.geometry.setAttribute('instanceOpacity', opacityAttribute);
+    instanceOpacityAttributeRef.current = opacityAttribute;
+
+    const matrix = new THREE.Matrix4();
+    let index = 0;
     for (let x = 0; x < grid.size; x++) {
-      const plane: THREE.Mesh[][] = [];
       for (let y = 0; y < grid.size; y++) {
-        const row: THREE.Mesh[] = [];
         for (let z = 0; z < grid.size; z++) {
-          const value = currentBuffer[x * sizeSquared + y * grid.size + z] ?? 0;
-          const material = new THREE.MeshStandardMaterial({
-            color: 0xffffff,
-            transparent: true,
-            opacity: value * (transparencyRef.current / 100),
-            metalness: 0.1,
-            roughness: 0.5,
-          });
-          const mesh = new THREE.Mesh(geometry, material);
-          mesh.position.set(
+          matrix.makeTranslation(
             x * TOTAL_CELL_SIZE + gridOffset,
             y * TOTAL_CELL_SIZE + gridOffset,
             z * TOTAL_CELL_SIZE + gridOffset,
           );
-          scene.add(mesh);
-          row.push(mesh);
+          instancedMesh.setMatrixAt(index, matrix);
+          index += 1;
         }
-        plane.push(row);
       }
-      newMeshes.push(plane);
     }
-    meshesRef.current = newMeshes;
+    instancedMesh.instanceMatrix.needsUpdate = true;
+
+    scene.add(instancedMesh);
+    instancedMeshRef.current = instancedMesh;
     updateMeshes();
     lastTickTimeRef.current = 0;
     tickCountRef.current = 0;
@@ -348,16 +397,16 @@ export function QuantumAutomatonView({
       if (frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
       controlsRef.current?.dispose();
       if (mountRef.current) mountRef.current.innerHTML = '';
-      for (const plane of meshesRef.current) {
-        for (const row of plane) {
-          for (const mesh of row) {
-            if (mesh.geometry) mesh.geometry.dispose();
-            if (mesh.material) (mesh.material as THREE.Material).dispose();
-          }
-        }
+      if (instancedMeshRef.current) {
+        instancedMeshRef.current.geometry.dispose();
+        (instancedMeshRef.current.material as THREE.Material).dispose();
       }
-      meshesRef.current = [];
+      instancedMeshRef.current = null;
+      instanceOpacityAttributeRef.current = null;
       rendererRef.current?.dispose();
+      sceneRef.current = null;
+      cameraRef.current = null;
+      rendererRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted, resetToken]);
