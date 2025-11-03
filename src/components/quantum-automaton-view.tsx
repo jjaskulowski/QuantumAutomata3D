@@ -5,7 +5,11 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useIsMounted } from '@/hooks/use-is-mounted';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { FrameDisplayMode, InitPattern } from '@/app/page';
+import type {
+  CellVisibilityMode,
+  FrameDisplayMode,
+  InitPattern,
+} from '@/app/page';
 
 type QuantumAutomatonViewProps = {
   isRunning: boolean;
@@ -15,6 +19,7 @@ type QuantumAutomatonViewProps = {
   initPattern: InitPattern;
   resetToken: number;
   frameDisplayMode: FrameDisplayMode;
+  cellVisibilityMode: CellVisibilityMode;
 };
 
 const CELL_SIZE = 1;
@@ -37,6 +42,7 @@ export function QuantumAutomatonView({
   initPattern,
   resetToken,
   frameDisplayMode,
+  cellVisibilityMode,
 }: QuantumAutomatonViewProps) {
   const isMounted = useIsMounted();
   const mountRef = useRef<HTMLDivElement>(null);
@@ -50,6 +56,13 @@ export function QuantumAutomatonView({
   const frameIdRef = useRef<number>();
   const tickCountRef = useRef(0);
   const frameDisplayModeRef = useRef<FrameDisplayMode>(frameDisplayMode);
+  const speedRef = useRef(speed);
+  const transparencyRef = useRef(transparency);
+  const cellVisibilityModeRef = useRef<CellVisibilityMode>(cellVisibilityMode);
+  const redColorRef = useRef(new THREE.Color(0xff0000));
+  const blueColorRef = useRef(new THREE.Color(0x0000ff));
+  const midColorRef = useRef(new THREE.Color(0xffffff));
+  const tempColorRef = useRef(new THREE.Color());
 
   const initGrid = useCallback(() => {
     const totalCells = gridSize * gridSize * gridSize;
@@ -137,20 +150,21 @@ export function QuantumAutomatonView({
     }
     grid.activeBufferIndex = nextBufferIndex;
   }, []);
-  
+
   const updateMeshes = useCallback(() => {
     const grid = gridRef.current;
     const meshes = meshesRef.current;
     if (!grid || !meshes.length) return;
 
     const buffer = grid.buffers[grid.activeBufferIndex];
-    const opacityMultiplier = transparency / 100;
+    const opacityMultiplier = transparencyRef.current / 100;
     const sizeSquared = grid.size * grid.size;
+    const visibilityMode = cellVisibilityModeRef.current;
 
-    const redColor = new THREE.Color(0xff0000);
-    const blueColor = new THREE.Color(0x0000ff);
-    const midColor = new THREE.Color(0xffffff);
-    const tempColor = new THREE.Color();
+    const redColor = redColorRef.current;
+    const blueColor = blueColorRef.current;
+    const midColor = midColorRef.current;
+    const tempColor = tempColorRef.current;
 
     for (let x = 0; x < grid.size; x++) {
       for (let y = 0; y < grid.size; y++) {
@@ -163,6 +177,8 @@ export function QuantumAutomatonView({
 
           const opacity = 1.0 - 2.0 * Math.abs(value - 0.5);
           material.opacity = opacity * opacityMultiplier;
+          material.transparent = true;
+          material.needsUpdate = true;
 
           if (value < 0.5) {
             tempColor.lerpColors(midColor, redColor, (0.5 - value) * 2);
@@ -171,36 +187,50 @@ export function QuantumAutomatonView({
           }
 
           material.color.copy(tempColor);
+
+          let isVisible = true;
+          if (visibilityMode === 'active') {
+            isVisible = value >= 0.5;
+          } else if (visibilityMode === 'inactive') {
+            isVisible = value < 0.5;
+          }
+
+          mesh.visible = isVisible;
         }
       }
     }
-  }, [transparency]);
+  }, []);
 
   useEffect(() => {
     if (!isMounted || !mountRef.current) return;
 
     if (rendererRef.current) {
-        if(frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
-        controlsRef.current?.dispose();
-        mountRef.current.innerHTML = "";
-        for (const plane of meshesRef.current) {
-            for (const row of plane) {
-                for (const mesh of row) {
-                    if(mesh.geometry) mesh.geometry.dispose();
-                    if(mesh.material) (mesh.material as THREE.Material).dispose();
-                }
-            }
+      if (frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
+      controlsRef.current?.dispose();
+      mountRef.current.innerHTML = '';
+      for (const plane of meshesRef.current) {
+        for (const row of plane) {
+          for (const mesh of row) {
+            if (mesh.geometry) mesh.geometry.dispose();
+            if (mesh.material) (mesh.material as THREE.Material).dispose();
+          }
         }
-        meshesRef.current = [];
-        rendererRef.current.dispose();
+      }
+      meshesRef.current = [];
+      rendererRef.current.dispose();
     }
-    
+
     const mount = mountRef.current;
 
     const scene = new THREE.Scene();
     sceneRef.current = scene;
-    
-    const camera = new THREE.PerspectiveCamera(75, mount.clientWidth / mount.clientHeight, 0.1, 1000);
+
+    const camera = new THREE.PerspectiveCamera(
+      75,
+      mount.clientWidth / mount.clientHeight,
+      0.1,
+      1000,
+    );
     camera.position.z = gridSize * 1.8;
     camera.position.y = gridSize * 1.2;
     camera.position.x = gridSize * 1.5;
@@ -223,7 +253,7 @@ export function QuantumAutomatonView({
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
     directionalLight.position.set(5, 10, 7.5);
     scene.add(directionalLight);
-    
+
     initGrid();
 
     const grid = gridRef.current;
@@ -235,7 +265,7 @@ export function QuantumAutomatonView({
     const sizeSquared = grid.size * grid.size;
     const newMeshes: THREE.Mesh[][][] = [];
     const geometry = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, CELL_SIZE);
-    const gridOffset = -(grid.size - 1) * TOTAL_CELL_SIZE / 2;
+    const gridOffset = (-(grid.size - 1) * TOTAL_CELL_SIZE) / 2;
 
     for (let x = 0; x < grid.size; x++) {
       const plane: THREE.Mesh[][] = [];
@@ -246,7 +276,7 @@ export function QuantumAutomatonView({
           const material = new THREE.MeshStandardMaterial({
             color: 0xffffff,
             transparent: true,
-            opacity: value * (transparency / 100),
+            opacity: value * (transparencyRef.current / 100),
             metalness: 0.1,
             roughness: 0.5,
           });
@@ -254,7 +284,7 @@ export function QuantumAutomatonView({
           mesh.position.set(
             x * TOTAL_CELL_SIZE + gridOffset,
             y * TOTAL_CELL_SIZE + gridOffset,
-            z * TOTAL_CELL_SIZE + gridOffset
+            z * TOTAL_CELL_SIZE + gridOffset,
           );
           scene.add(mesh);
           row.push(mesh);
@@ -270,14 +300,15 @@ export function QuantumAutomatonView({
 
     const animate = (time: number) => {
       frameIdRef.current = requestAnimationFrame(animate);
-      
+
       controlsRef.current?.update();
 
       if (isRunning) {
-        const minDelay = 10; 
+        const minDelay = 10;
         const maxDelay = 1000;
-        const currentDelay = minDelay + ((100 - speed) / 99) * (maxDelay - minDelay);
-  
+        const currentDelay =
+          minDelay + ((100 - speedRef.current) / 99) * (maxDelay - minDelay);
+
         if (time - lastTickTimeRef.current > currentDelay) {
           updateSimulation();
           tickCountRef.current += 1;
@@ -292,7 +323,7 @@ export function QuantumAutomatonView({
           lastTickTimeRef.current = time;
         }
       }
-      
+
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         rendererRef.current.render(sceneRef.current, cameraRef.current);
       }
@@ -301,30 +332,34 @@ export function QuantumAutomatonView({
 
     const handleResize = () => {
       if (mountRef.current && cameraRef.current && rendererRef.current) {
-        cameraRef.current.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
+        cameraRef.current.aspect =
+          mountRef.current.clientWidth / mountRef.current.clientHeight;
         cameraRef.current.updateProjectionMatrix();
-        rendererRef.current.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+        rendererRef.current.setSize(
+          mountRef.current.clientWidth,
+          mountRef.current.clientHeight,
+        );
       }
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      if(frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
+      if (frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
       controlsRef.current?.dispose();
-      if(mountRef.current) mountRef.current.innerHTML = "";
+      if (mountRef.current) mountRef.current.innerHTML = '';
       for (const plane of meshesRef.current) {
         for (const row of plane) {
           for (const mesh of row) {
-            if(mesh.geometry) mesh.geometry.dispose();
-            if(mesh.material) (mesh.material as THREE.Material).dispose();
+            if (mesh.geometry) mesh.geometry.dispose();
+            if (mesh.material) (mesh.material as THREE.Material).dispose();
           }
         }
       }
       meshesRef.current = [];
       rendererRef.current?.dispose();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted, resetToken]);
 
   useEffect(() => {
@@ -335,10 +370,22 @@ export function QuantumAutomatonView({
   }, [frameDisplayMode, isMounted, updateMeshes]);
 
   useEffect(() => {
-    if(isMounted) {
+    speedRef.current = speed;
+  }, [speed]);
+
+  useEffect(() => {
+    transparencyRef.current = transparency;
+    if (isMounted) {
       updateMeshes();
     }
   }, [transparency, isMounted, updateMeshes]);
+
+  useEffect(() => {
+    cellVisibilityModeRef.current = cellVisibilityMode;
+    if (isMounted) {
+      updateMeshes();
+    }
+  }, [cellVisibilityMode, isMounted, updateMeshes]);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -349,9 +396,8 @@ export function QuantumAutomatonView({
     camera.position.z = gridSize * 1.8;
     camera.position.y = gridSize * 1.2;
     camera.position.x = gridSize * 1.5;
-    camera.lookAt(0,0,0)
+    camera.lookAt(0, 0, 0);
   }, [gridSize]);
-
 
   if (!isMounted) {
     return <Skeleton className="h-full w-full rounded-xl" />;

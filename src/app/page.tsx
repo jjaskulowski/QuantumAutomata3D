@@ -7,6 +7,7 @@ import { QuantumAutomatonView } from "@/components/quantum-automaton-view";
 
 export type InitPattern = "random" | "dots";
 export type FrameDisplayMode = "all" | "even" | "odd";
+export type CellVisibilityMode = "all" | "active" | "inactive";
 
 export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
@@ -16,6 +17,8 @@ export default function Home() {
   const [initPattern, setInitPattern] = useState<InitPattern>("random");
   const [resetToken, setResetToken] = useState(0);
   const [frameDisplayMode, setFrameDisplayMode] = useState<FrameDisplayMode>("all");
+  const [cellVisibilityMode, setCellVisibilityMode] =
+    useState<CellVisibilityMode>("all");
 
   return (
     <main className="h-screen w-screen">
@@ -37,6 +40,8 @@ export default function Home() {
             }}
             frameDisplayMode={frameDisplayMode}
             onFrameDisplayModeChange={setFrameDisplayMode}
+            cellVisibilityMode={cellVisibilityMode}
+            onCellVisibilityModeChange={setCellVisibilityMode}
             initPattern={initPattern}
             onInitPatternChange={(pattern) => {
               setInitPattern(pattern);
@@ -57,6 +62,7 @@ export default function Home() {
             initPattern={initPattern}
             resetToken={resetToken}
             frameDisplayMode={frameDisplayMode}
+            cellVisibilityMode={cellVisibilityMode}
           />
         </SidebarInset>
       </SidebarProvider>
