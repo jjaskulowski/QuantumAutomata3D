@@ -5,7 +5,11 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useIsMounted } from '@/hooks/use-is-mounted';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { InitPattern } from '@/app/page';
+import type {
+  CellVisibilityMode,
+  FrameDisplayMode,
+  InitPattern,
+} from '@/app/page';
 
 type QuantumAutomatonViewProps = {
   isRunning: boolean;
@@ -14,24 +18,21 @@ type QuantumAutomatonViewProps = {
   gridSize: number;
   initPattern: InitPattern;
   resetToken: number;
+  frameDisplayMode: FrameDisplayMode;
+  cellVisibilityMode: CellVisibilityMode;
 };
 
 const CELL_SIZE = 1;
 const CELL_GAP = 0.2;
 const TOTAL_CELL_SIZE = CELL_SIZE + CELL_GAP;
+const NEIGHBOR_COUNT = 26;
 
-const NEIGHBOR_OFFSETS = (() => {
-    const offsets = [];
-    for (let x = -1; x <= 1; x++) {
-        for (let y = -1; y <= 1; y++) {
-            for (let z = -1; z <= 1; z++) {
-                if (x === 0 && y === 0 && z === 0) continue;
-                offsets.push({ x, y, z });
-            }
-        }
-    }
-    return offsets;
-})();
+type GridState = {
+  size: number;
+  buffers: [Float32Array, Float32Array];
+  activeBufferIndex: 0 | 1;
+  neighbors: Uint32Array;
+};
 
 export function QuantumAutomatonView({
   isRunning,
@@ -40,6 +41,8 @@ export function QuantumAutomatonView({
   gridSize,
   initPattern,
   resetToken,
+  frameDisplayMode,
+  cellVisibilityMode,
 }: QuantumAutomatonViewProps) {
   const isMounted = useIsMounted();
   const mountRef = useRef<HTMLDivElement>(null);
@@ -47,124 +50,193 @@ export function QuantumAutomatonView({
   const controlsRef = useRef<OrbitControls | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const gridRef = useRef<number[][][]>([]);
-  const meshesRef = useRef<THREE.Mesh[][][]>([]);
+  const gridRef = useRef<GridState | null>(null);
+  const instancedMeshRef = useRef<THREE.InstancedMesh | null>(null);
+  const instanceOpacityAttributeRef = useRef<
+    THREE.InstancedBufferAttribute | null
+  >(null);
   const lastTickTimeRef = useRef(0);
   const frameIdRef = useRef<number>();
+  const tickCountRef = useRef(0);
+  const frameDisplayModeRef = useRef<FrameDisplayMode>(frameDisplayMode);
+  const speedRef = useRef(speed);
+  const transparencyRef = useRef(transparency);
+  const cellVisibilityModeRef = useRef<CellVisibilityMode>(cellVisibilityMode);
+  const redColorRef = useRef(new THREE.Color(0xff0000));
+  const blueColorRef = useRef(new THREE.Color(0x0000ff));
+  const midColorRef = useRef(new THREE.Color(0xffffff));
+  const tempColorRef = useRef(new THREE.Color());
 
   const initGrid = useCallback(() => {
-    let grid: number[][][] = [];
-     if (initPattern === 'dots') {
-      grid = Array(gridSize).fill(0).map(() =>
-        Array(gridSize).fill(0).map(() =>
-          Array(gridSize).fill(0)
-        )
-      );
+    const totalCells = gridSize * gridSize * gridSize;
+    const buffers: [Float32Array, Float32Array] = [
+      new Float32Array(totalCells),
+      new Float32Array(totalCells),
+    ];
+
+    const primaryBuffer = buffers[0];
+    const sizeSquared = gridSize * gridSize;
+
+    if (initPattern === 'dots') {
       for (let x = 1; x < gridSize; x += 3) {
         for (let y = 1; y < gridSize; y += 3) {
           for (let z = 1; z < gridSize; z += 3) {
-            if(x < gridSize && y < gridSize && z < gridSize) {
-               grid[x][y][z] = 1;
+            if (x < gridSize && y < gridSize && z < gridSize) {
+              const index = x * sizeSquared + y * gridSize + z;
+              primaryBuffer[index] = 1;
             }
           }
         }
       }
     } else {
-       grid = Array(gridSize).fill(0).map(() =>
-        Array(gridSize).fill(0).map(() =>
-          Array(gridSize).fill(0).map(() => Math.random())
-        )
-      );
+      for (let i = 0; i < totalCells; i++) {
+        primaryBuffer[i] = Math.random();
+      }
     }
-    gridRef.current = grid;
+
+    const neighbors = new Uint32Array(totalCells * NEIGHBOR_COUNT);
+    const neighborOffsets = [-1, 0, 1];
+    let neighborWriteIndex = 0;
+
+    for (let x = 0; x < gridSize; x++) {
+      for (let y = 0; y < gridSize; y++) {
+        for (let z = 0; z < gridSize; z++) {
+          for (const dx of neighborOffsets) {
+            for (const dy of neighborOffsets) {
+              for (const dz of neighborOffsets) {
+                if (dx === 0 && dy === 0 && dz === 0) {
+                  continue;
+                }
+                const nx = (x + dx + gridSize) % gridSize;
+                const ny = (y + dy + gridSize) % gridSize;
+                const nz = (z + dz + gridSize) % gridSize;
+                neighbors[neighborWriteIndex++] =
+                  nx * sizeSquared + ny * gridSize + nz;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    gridRef.current = {
+      size: gridSize,
+      buffers,
+      activeBufferIndex: 0,
+      neighbors,
+    };
   }, [gridSize, initPattern]);
 
   const updateSimulation = useCallback(() => {
-    const currentGrid = gridRef.current;
-    const newGrid = currentGrid.map(plane => plane.map(row => row.slice()));
+    const grid = gridRef.current;
+    if (!grid) return;
 
-    for (let x = 0; x < gridSize; x++) {
-      for (let y = 0; y < gridSize; y++) {
-        for (let z = 0; z < gridSize; z++) {
-          let neighborSum = 0;
-          for (const offset of NEIGHBOR_OFFSETS) {
-            const nx = (x + offset.x + gridSize) % gridSize;
-            const ny = (y + offset.y + gridSize) % gridSize;
-            const nz = (z + offset.z + gridSize) % gridSize;
-            neighborSum += 1.0 - currentGrid[nx][ny][nz];
-          }
-          const avg = neighborSum / 26;
-          
-          const oldState = currentGrid[x][y][z];
-          let newState = Math.abs(oldState - avg);
+    const { buffers, neighbors } = grid;
+    const currentBufferIndex = grid.activeBufferIndex;
+    const nextBufferIndex: 0 | 1 = currentBufferIndex === 0 ? 1 : 0;
+    const currentBuffer = buffers[currentBufferIndex];
+    const nextBuffer = buffers[nextBufferIndex];
+    const totalCells = currentBuffer.length;
 
-          newState = Math.max(0, Math.min(1, newState));
-
-          newGrid[x][y][z] = newState;
-        }
+    for (let i = 0; i < totalCells; i++) {
+      let neighborSum = 0;
+      const neighborOffset = i * NEIGHBOR_COUNT;
+      for (let j = 0; j < NEIGHBOR_COUNT; j++) {
+        neighborSum += 1.0 - currentBuffer[neighbors[neighborOffset + j]];
       }
+
+      const avg = neighborSum / NEIGHBOR_COUNT;
+      let newState = Math.abs(currentBuffer[i] - avg);
+      if (newState < 0) newState = 0;
+      if (newState > 1) newState = 1;
+      nextBuffer[i] = newState;
     }
-    gridRef.current = newGrid;
-  }, [gridSize]);
-  
+    grid.activeBufferIndex = nextBufferIndex;
+  }, []);
+
   const updateMeshes = useCallback(() => {
     const grid = gridRef.current;
-    const meshes = meshesRef.current;
-    if (!meshes.length || !grid.length) return;
-    const opacityMultiplier = transparency / 100;
+    const instancedMesh = instancedMeshRef.current;
+    const opacityAttribute = instanceOpacityAttributeRef.current;
+    if (!grid || !instancedMesh || !opacityAttribute) return;
 
-    const redColor = new THREE.Color(0xff0000);
-    const blueColor = new THREE.Color(0x0000ff);
-    const midColor = new THREE.Color(0xffffff);
+    const buffer = grid.buffers[grid.activeBufferIndex];
+    const opacityMultiplier = transparencyRef.current / 100;
+    const sizeSquared = grid.size * grid.size;
+    const visibilityMode = cellVisibilityModeRef.current;
 
-    for (let x = 0; x < gridSize; x++) {
-      for (let y = 0; y < gridSize; y++) {
-        for (let z = 0; z < gridSize; z++) {
-          if (meshes[x] && meshes[x][y] && meshes[x][y][z]) {
-            const mesh = meshes[x][y][z];
-            const value = grid[x]?.[y]?.[z] ?? 0;
-            
-            // Transparency: 0.5 is opaque, 0 and 1 are transparent
-            const opacity = 1.0 - 2.0 * Math.abs(value - 0.5);
-            (mesh.material as THREE.MeshStandardMaterial).opacity = opacity * opacityMultiplier;
-            
-            // Color: < 0.5 is red, > 0.5 is blue
-            const color = new THREE.Color();
-            if (value < 0.5) {
-              // Lerp from white to red
-              color.lerpColors(midColor, redColor, (0.5 - value) * 2);
-            } else {
-              // Lerp from white to blue
-              color.lerpColors(midColor, blueColor, (value - 0.5) * 2);
-            }
-            (mesh.material as THREE.MeshStandardMaterial).color = color;
+    const redColor = redColorRef.current;
+    const blueColor = blueColorRef.current;
+    const midColor = midColorRef.current;
+    const tempColor = tempColorRef.current;
+
+    const opacities = opacityAttribute.array as Float32Array;
+
+    const instanceColor = instancedMesh.instanceColor;
+    if (!instanceColor) return;
+
+    for (let x = 0; x < grid.size; x++) {
+      for (let y = 0; y < grid.size; y++) {
+        for (let z = 0; z < grid.size; z++) {
+          const cellIndex = x * sizeSquared + y * grid.size + z;
+          const value = buffer[cellIndex] ?? 0;
+
+          const opacity = (1.0 - 2.0 * Math.abs(value - 0.5)) * opacityMultiplier;
+
+          if (value < 0.5) {
+            tempColor.lerpColors(midColor, redColor, (0.5 - value) * 2);
+          } else {
+            tempColor.lerpColors(midColor, blueColor, (value - 0.5) * 2);
           }
+
+          instancedMesh.setColorAt(cellIndex, tempColor);
+
+          let effectiveOpacity = opacity;
+          if (visibilityMode === 'active' && value < 0.5) {
+            effectiveOpacity = 0;
+          } else if (visibilityMode === 'inactive' && value >= 0.5) {
+            effectiveOpacity = 0;
+          }
+
+          opacities[cellIndex] = Math.max(0, Math.min(1, effectiveOpacity));
         }
       }
     }
-  }, [gridSize, transparency]);
+
+    instanceColor.needsUpdate = true;
+    opacityAttribute.needsUpdate = true;
+  }, []);
 
   useEffect(() => {
     if (!isMounted || !mountRef.current) return;
 
     if (rendererRef.current) {
-        if(frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
-        controlsRef.current?.dispose();
-        mountRef.current.innerHTML = "";
-        meshesRef.current.flat(3).forEach(mesh => {
-            if(mesh.geometry) mesh.geometry.dispose();
-            if(mesh.material) (mesh.material as THREE.Material).dispose();
-        });
-        meshesRef.current = [];
-        rendererRef.current.dispose();
+      if (frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
+      controlsRef.current?.dispose();
+      mountRef.current.innerHTML = '';
+      if (instancedMeshRef.current) {
+        instancedMeshRef.current.geometry.dispose();
+        (instancedMeshRef.current.material as THREE.Material).dispose();
+      }
+      instancedMeshRef.current = null;
+      instanceOpacityAttributeRef.current = null;
+      rendererRef.current.dispose();
+      sceneRef.current = null;
+      cameraRef.current = null;
+      rendererRef.current = null;
     }
-    
+
     const mount = mountRef.current;
 
     const scene = new THREE.Scene();
     sceneRef.current = scene;
-    
-    const camera = new THREE.PerspectiveCamera(75, mount.clientWidth / mount.clientHeight, 0.1, 1000);
+
+    const camera = new THREE.PerspectiveCamera(
+      75,
+      mount.clientWidth / mount.clientHeight,
+      0.1,
+      1000,
+    );
     camera.position.z = gridSize * 1.8;
     camera.position.y = gridSize * 1.2;
     camera.position.x = gridSize * 1.5;
@@ -187,59 +259,114 @@ export function QuantumAutomatonView({
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
     directionalLight.position.set(5, 10, 7.5);
     scene.add(directionalLight);
-    
+
     initGrid();
 
-    const newMeshes: THREE.Mesh[][][] = [];
-    const geometry = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, CELL_SIZE);
-    const gridOffset = -(gridSize - 1) * TOTAL_CELL_SIZE / 2;
+    const grid = gridRef.current;
+    if (!grid) {
+      return () => undefined;
+    }
 
-    for (let x = 0; x < gridSize; x++) {
-      const plane: THREE.Mesh[][] = [];
-      for (let y = 0; y < gridSize; y++) {
-        const row: THREE.Mesh[] = [];
-        for (let z = 0; z < gridSize; z++) {
-          const material = new THREE.MeshStandardMaterial({
-            color: 0xffffff,
-            transparent: true,
-            opacity: gridRef.current[x][y][z] * (transparency / 100),
-            metalness: 0.1,
-            roughness: 0.5,
-          });
-          const mesh = new THREE.Mesh(geometry, material);
-          mesh.position.set(
+    const totalCells = grid.size * grid.size * grid.size;
+    const geometry = new THREE.BoxGeometry(CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    const gridOffset = (-(grid.size - 1) * TOTAL_CELL_SIZE) / 2;
+
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 1,
+      metalness: 0.1,
+      roughness: 0.5,
+      vertexColors: true,
+      depthWrite: false,
+    });
+
+    material.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nattribute float instanceOpacity;\nvarying float vInstanceOpacity;',
+        )
+        .replace(
+          '#include <begin_vertex>',
+          '#include <begin_vertex>\nvInstanceOpacity = instanceOpacity;',
+        );
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nvarying float vInstanceOpacity;',
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          'gl_FragColor.a *= vInstanceOpacity;\n#include <dithering_fragment>',
+        );
+    };
+
+    const instancedMesh = new THREE.InstancedMesh(geometry, material, totalCells);
+    instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+
+    const colors = new Float32Array(totalCells * 3);
+    instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
+    instancedMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
+    const opacityAttribute = new THREE.InstancedBufferAttribute(
+      new Float32Array(totalCells),
+      1,
+    );
+    opacityAttribute.setUsage(THREE.DynamicDrawUsage);
+    instancedMesh.geometry.setAttribute('instanceOpacity', opacityAttribute);
+    instanceOpacityAttributeRef.current = opacityAttribute;
+
+    const matrix = new THREE.Matrix4();
+    let index = 0;
+    for (let x = 0; x < grid.size; x++) {
+      for (let y = 0; y < grid.size; y++) {
+        for (let z = 0; z < grid.size; z++) {
+          matrix.makeTranslation(
             x * TOTAL_CELL_SIZE + gridOffset,
             y * TOTAL_CELL_SIZE + gridOffset,
-            z * TOTAL_CELL_SIZE + gridOffset
+            z * TOTAL_CELL_SIZE + gridOffset,
           );
-          scene.add(mesh);
-          row.push(mesh);
+          instancedMesh.setMatrixAt(index, matrix);
+          index += 1;
         }
-        plane.push(row);
       }
-      newMeshes.push(plane);
     }
-    meshesRef.current = newMeshes;
+    instancedMesh.instanceMatrix.needsUpdate = true;
+
+    scene.add(instancedMesh);
+    instancedMeshRef.current = instancedMesh;
     updateMeshes();
     lastTickTimeRef.current = 0;
+    tickCountRef.current = 0;
 
     const animate = (time: number) => {
       frameIdRef.current = requestAnimationFrame(animate);
-      
+
       controlsRef.current?.update();
 
       if (isRunning) {
-        const minDelay = 10; 
+        const minDelay = 10;
         const maxDelay = 1000;
-        const currentDelay = minDelay + ((100 - speed) / 99) * (maxDelay - minDelay);
-  
+        const currentDelay =
+          minDelay + ((100 - speedRef.current) / 99) * (maxDelay - minDelay);
+
         if (time - lastTickTimeRef.current > currentDelay) {
           updateSimulation();
-          updateMeshes();
+          tickCountRef.current += 1;
+          const mode = frameDisplayModeRef.current;
+          const shouldRender =
+            mode === 'all' ||
+            (mode === 'even' && tickCountRef.current % 2 === 0) ||
+            (mode === 'odd' && tickCountRef.current % 2 === 1);
+          if (shouldRender) {
+            updateMeshes();
+          }
           lastTickTimeRef.current = time;
         }
       }
-      
+
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         rendererRef.current.render(sceneRef.current, cameraRef.current);
       }
@@ -248,33 +375,60 @@ export function QuantumAutomatonView({
 
     const handleResize = () => {
       if (mountRef.current && cameraRef.current && rendererRef.current) {
-        cameraRef.current.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
+        cameraRef.current.aspect =
+          mountRef.current.clientWidth / mountRef.current.clientHeight;
         cameraRef.current.updateProjectionMatrix();
-        rendererRef.current.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+        rendererRef.current.setSize(
+          mountRef.current.clientWidth,
+          mountRef.current.clientHeight,
+        );
       }
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      if(frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
+      if (frameIdRef.current) cancelAnimationFrame(frameIdRef.current);
       controlsRef.current?.dispose();
-      if(mountRef.current) mountRef.current.innerHTML = "";
-      meshesRef.current.flat(3).forEach(mesh => {
-        if(mesh.geometry) mesh.geometry.dispose();
-        if(mesh.material) (mesh.material as THREE.Material).dispose();
-      });
-      meshesRef.current = [];
+      if (mountRef.current) mountRef.current.innerHTML = '';
+      if (instancedMeshRef.current) {
+        instancedMeshRef.current.geometry.dispose();
+        (instancedMeshRef.current.material as THREE.Material).dispose();
+      }
+      instancedMeshRef.current = null;
+      instanceOpacityAttributeRef.current = null;
       rendererRef.current?.dispose();
+      sceneRef.current = null;
+      cameraRef.current = null;
+      rendererRef.current = null;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted, resetToken]);
 
   useEffect(() => {
-    if(isMounted) {
+    frameDisplayModeRef.current = frameDisplayMode;
+    if (isMounted) {
+      updateMeshes();
+    }
+  }, [frameDisplayMode, isMounted, updateMeshes]);
+
+  useEffect(() => {
+    speedRef.current = speed;
+  }, [speed]);
+
+  useEffect(() => {
+    transparencyRef.current = transparency;
+    if (isMounted) {
       updateMeshes();
     }
   }, [transparency, isMounted, updateMeshes]);
+
+  useEffect(() => {
+    cellVisibilityModeRef.current = cellVisibilityMode;
+    if (isMounted) {
+      updateMeshes();
+    }
+  }, [cellVisibilityMode, isMounted, updateMeshes]);
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -285,9 +439,8 @@ export function QuantumAutomatonView({
     camera.position.z = gridSize * 1.8;
     camera.position.y = gridSize * 1.2;
     camera.position.x = gridSize * 1.5;
-    camera.lookAt(0,0,0)
+    camera.lookAt(0, 0, 0);
   }, [gridSize]);
-
 
   if (!isMounted) {
     return <Skeleton className="h-full w-full rounded-xl" />;

@@ -7,7 +7,11 @@ import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarTrigger } from "@/components/ui/sidebar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { InitPattern } from "@/app/page";
+import type {
+  CellVisibilityMode,
+  FrameDisplayMode,
+  InitPattern,
+} from "@/app/page";
 
 type AutomatonControlsProps = {
   isRunning: boolean;
@@ -18,6 +22,10 @@ type AutomatonControlsProps = {
   onTransparencyChange: (value: number) => void;
   gridSize: number;
   onGridSizeChange: (value: number) => void;
+  frameDisplayMode: FrameDisplayMode;
+  onFrameDisplayModeChange: (value: FrameDisplayMode) => void;
+  cellVisibilityMode: CellVisibilityMode;
+  onCellVisibilityModeChange: (value: CellVisibilityMode) => void;
   initPattern: InitPattern;
   onInitPatternChange: (value: InitPattern) => void;
   onReset: () => void;
@@ -32,6 +40,10 @@ export function AutomatonControls({
   onTransparencyChange,
   gridSize,
   onGridSizeChange,
+  frameDisplayMode,
+  onFrameDisplayModeChange,
+  cellVisibilityMode,
+  onCellVisibilityModeChange,
   initPattern,
   onInitPatternChange,
   onReset,
@@ -71,6 +83,35 @@ export function AutomatonControls({
                 step={1}
               />
             </div>
+            <div className="space-y-3">
+              <Label htmlFor="frame-display-mode">Frame Display</Label>
+              <Select value={frameDisplayMode} onValueChange={(value: FrameDisplayMode) => onFrameDisplayModeChange(value)}>
+                <SelectTrigger id="frame-display-mode">
+                  <SelectValue placeholder="Select frame display" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Frames</SelectItem>
+                  <SelectItem value="even">Even Frames</SelectItem>
+                  <SelectItem value="odd">Odd Frames</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-3">
+              <Label htmlFor="cell-visibility-mode">Cell Visibility</Label>
+              <Select
+                value={cellVisibilityMode}
+                onValueChange={(value: CellVisibilityMode) => onCellVisibilityModeChange(value)}
+              >
+                <SelectTrigger id="cell-visibility-mode">
+                  <SelectValue placeholder="Select cell visibility" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Cells</SelectItem>
+                  <SelectItem value="active">Active (≥ 0.5)</SelectItem>
+                  <SelectItem value="inactive">Inactive (&lt; 0.5)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </SidebarGroupContent>
         </SidebarGroup>
          <SidebarGroup>
@@ -82,7 +123,7 @@ export function AutomatonControls({
                 id="grid-size"
                 value={[gridSize]}
                 onValueChange={(v) => onGridSizeChange(v[0])}
-                max={20}
+                max={60}
                 min={5}
                 step={1}
               />
