@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useIsMounted } from '@/hooks/use-is-mounted';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { InitPattern } from '@/app/page';
+import { cn } from '@/lib/utils';
 
 type QuantumAutomatonViewProps = {
   isRunning: boolean;
@@ -14,6 +15,7 @@ type QuantumAutomatonViewProps = {
   gridSize: number;
   initPattern: InitPattern;
   resetToken: number;
+  className?: string;
 };
 
 const CELL_SIZE = 1;
@@ -40,6 +42,7 @@ export function QuantumAutomatonView({
   gridSize,
   initPattern,
   resetToken,
+  className,
 }: QuantumAutomatonViewProps) {
   const isMounted = useIsMounted();
   const mountRef = useRef<HTMLDivElement>(null);
@@ -290,8 +293,14 @@ export function QuantumAutomatonView({
 
 
   if (!isMounted) {
-    return <Skeleton className="h-full w-full rounded-xl" />;
+    return <Skeleton className={cn("h-full w-full rounded-xl", className)} />;
   }
 
-  return <div ref={mountRef} className="h-full w-full outline-none" tabIndex={0} />;
+  return (
+    <div
+      ref={mountRef}
+      className={cn("h-full w-full outline-none", className)}
+      tabIndex={0}
+    />
+  );
 }
